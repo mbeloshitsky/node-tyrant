@@ -105,6 +105,7 @@ exports.make = function (host, port, wrkCount) {
 
       switch (state.cmd) {
       case TTCMDPUT:
+      case TTCMDOUT:
       case TTCMDPUTKEEP:
       case TTCMDPUTCAT:
          var ed = bin.read('b', data), err = ed[1][0], data = ed[0]
@@ -131,8 +132,57 @@ exports.make = function (host, port, wrkCount) {
             }
          }
          break
+      case TTCMDMISC:
+         var ed = bin.read('bI', data), err = ed[1][0], data = ed[0], len = ed[1][1]
+	 if (state.miscCmd == 'iterinit') {
+            if (err != TTESUCCESS) {
+               return fin(state, {code:err}, data)
+            }
+	    if (len != 0) 
+	       fin(state, {code:TTEMISC+2, 
+			wtf: 'Iterinit expected 0-size list from tyrant'})
+	    state.cb(null, 'start')
+	    state.miscCmd = 'iternext'
+	    state.stream.write(
+               bin.format('bbIIIS', TTMAGICNUM, state.cmd, 
+			  state.miscCmd.length, /* opts */0, /* argCount */0, 
+			  state.miscCmd),
+               'binary'
+            )
+	 } else if (state.miscCmd == 'iternext') {
+            if (err == TTEINVALID) {
+               return fin(state, null, 'end')
+            }
+            if (err != TTESUCCESS) {
+               return fin(state, {code:err}, data)
+            }
+	    if (len == 2) {
+	       var ed = bin.read('I', data), data = ed[0], key = data.substr(0, ed[1][0])
+	       data = data.slice(ed[1][0])
+	       var ed = bin.read('I', data), data = ed[0], val = data.substr(0, ed[1][0])
+	       var kj = eval(key), vj = eval(val)
+	       state.cb(null, 'k-v', kj, vj)
+	       if (kj == state.endKey) {
+		  return fin(state, null, 'end')
+	       }
+	       state.stream.write(
+		  bin.format('bbIIIS', TTMAGICNUM, state.cmd, 
+			     state.miscCmd.length, /* opts */0, /* argCount */0, 
+			     state.miscCmd),
+		  'binary'
+               )
+	    } else {
+	       fin(state, {code:TTEMISC+1, 
+			wtf: 'Unexpected list length in ('+state.miscCmd+')'})
+	    }
+	 } else {
+	    fin(state, {code:TTEMISC+1, 
+			wtf: 'Not implemented misc command ('+state.miscCmd+')'})
+	 }
+         break
       default:
-         fin(state, {code:TTEMISC+1, wtf: 'Not implemented onData event ('+state.cmd+')'})
+         fin(state, {code:TTEMISC+1, 
+		     wtf: 'Not implemented onData event ('+state.cmd+')'})
          break
       }
    }
@@ -176,12 +226,41 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
-   function del() {
-
+   function del(k, cb) {
+      walloc(function (err, state) {
+         var jk = JSON.stringify(k)
+         state.cmd = TTCMDOUT
+         state.cb = cb
+         state.stream.write(
+            bin.format('bbIS', TTMAGICNUM, state.cmd, jk.length, jk),
+            'binary'
+         )
+      })
    }
 
-   function iter() {
-
+   function iter(ks, ke, cb) {
+      walloc(function (err, state) {
+         var jks = JSON.stringify(ks)
+         state.cmd = TTCMDMISC
+	 state.miscCmd = 'iterinit'
+	 state.endKey = ke
+         state.cb = cb
+	 if (jks) {
+            state.stream.write(
+               bin.format('bbIIISIS', TTMAGICNUM, state.cmd, 
+			  state.miscCmd.length, /* opts */0, /* argCount */1,
+			  state.miscCmd, jks.length, jks),
+               'binary'
+            )
+	 } else {
+	    state.stream.write(
+               bin.format('bbIIIS',   TTMAGICNUM, state.cmd, 
+			  state.miscCmd.length, /* opts */0, /* argCount */0, 
+			  state.miscCmd),
+               'binary'
+            )
+	 }
+      })
    }
 
    function halt() {
@@ -215,5 +294,5 @@ exports.make = function (host, port, wrkCount) {
          busy.push(wrkCount)
       })()
    }
-   return {put: put, get: get, halt: halt}
+   return {put: put, get: get, iter:iter, halt: halt}
 }

@@ -93,6 +93,26 @@ tests.push(function () {
 })
 
 tests.push(function () {
+
+   var rcvdkeys = []
+
+   console.log('** Iter test **')
+
+   tt.iter('putappend', 'putkeep', function (err, cmd, k, v) {
+      if (err) throw err
+      console.log(cmd)
+      if (cmd == 'k-v') {
+	 rcvdkeys.push(k)
+	 console.log(k, v)
+      }
+      if (cmd == 'end') {
+	 assert(rcvdkeys[0] == 'putappend' && rcvdkeys.pop() == 'putkeep')
+	 nextTest()
+      }
+   })
+})
+
+tests.push(function () {
    console.log('** Halt test. Must now exit. **')
    tt.halt()
 })
