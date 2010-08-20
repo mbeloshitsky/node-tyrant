@@ -57,9 +57,19 @@ exports.make = function (host, port, wrkCount) {
    /* State */
    var halted = false
 
-   /* Workers management */
+   /* 
+      Workers management
+      
+      Here we use simple connection pool pattern. At the begin
+      we make N connections and distribute it among incoming tasks.
+      
+      If number of incoming task requests overrates number of free connections
+      we put task requests in fifo queue - which stored in wpending array.
+    */
    var workers = {}, free = [], busy = [], wpending = []
 
+   /* Allocate free connection or pend task in case 
+      of no free conenctions. */
    function walloc(cb) {
       var found = free.pop()
       if (found !== undefined) {
@@ -70,22 +80,34 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
+   /* Free connection and check pending queue. If queue contain
+      incoming task requests - alloc it immeditally. */
    function wfree(id) {
       busy = busy.reduce(function (res, x) {
          if (x != id) res.push(x); return res
       }, [])
       free.push(id)
+
+      /* Check pending */
       while (wpending.length && free.length) {
          walloc(wpending.shift())
       }
    }
 
-   /* TCP connection events handling */
+   /* TCP connection events handling.
+      
+      While creating connection pool we bind these 
+      handlers to each connection. 
+
+      "state" parameter which passed to each of handlers 
+      intended to provide access to connection specific data.
+    */
    function onConnect(state) {
       state.stream.setEncoding('binary')
       wfree(state.id)
    }
 
+   /* 'drain' event - stream writable again */
    function onDrain(state) {
       /* Possible not correct */
       if (!state.cmd)
@@ -98,6 +120,11 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
+   /* Data received - most complicated handler now. 
+    
+      TODO: Split this into separated handlers for each 
+      command.
+   */
    function onData(state, data) {
       /* Possible not correct */
       if (!state.cmd)
@@ -108,6 +135,7 @@ exports.make = function (host, port, wrkCount) {
       case TTCMDOUT:
       case TTCMDPUTKEEP:
       case TTCMDPUTCAT:
+	 /* Check for error and end request */
          var ed = bin.read('b', data), err = ed[1][0], data = ed[0]
          if (err != TTESUCCESS) {
             fin(state, {code:err}, data)
@@ -115,6 +143,7 @@ exports.make = function (host, port, wrkCount) {
          fin(state, null, data)
          break
       case TTCMDGET:
+	 /* Retreive value. Value size may be huge so it may */
          if (!state.rem) {
             var ed = bin.read('bI', data), err = ed[1][0], len = ed[1][1], data = ed[0]
             if (err != TTESUCCESS) {
@@ -133,6 +162,10 @@ exports.make = function (host, port, wrkCount) {
          }
          break
       case TTCMDMISC:
+	 /* Handle iterinit and iternext commands.
+	    
+	    We need B+Tree specific commands so we should use msic tyrant api 
+	 */
          var ed = bin.read('bI', data), err = ed[1][0], data = ed[0], len = ed[1][1]
 	 if (state.miscCmd == 'iterinit') {
             if (err != TTESUCCESS) {
@@ -181,6 +214,7 @@ exports.make = function (host, port, wrkCount) {
 	 }
          break
       default:
+	 /* Unrecognized. Send error. */
          fin(state, {code:TTEMISC+1, 
 		     wtf: 'Not implemented onData event ('+state.cmd+')'})
          break
@@ -263,6 +297,7 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
+   /* Close connection pool */
    function halt() {
       halted = true
       for (w in workers) {
@@ -272,6 +307,9 @@ exports.make = function (host, port, wrkCount) {
 
    /* State management */
 
+   /* Common used finalizing function for finalizing command. 
+
+      Send final callback and free allocated connection */
    function fin(state) {
       var i, args=[]
       for (i=1; i < arguments.length; i++)
@@ -281,10 +319,14 @@ exports.make = function (host, port, wrkCount) {
       wfree(state.id)
    }
 
-   /* The Maker */
-   wrkCount = wrkCount || 8
+   /* The Maker - makes connection pool. */
+
+   wrkCount = wrkCount || 8 /* This default came from tyrant */
+
    while(wrkCount--) {
-      (function () {
+      /* Here we need a closure to make curr and conn vars unique for
+	 each connection. */
+      (function () { 
          var conn = net.createConnection(port || TTDEFPORT, host), curr = {stream: conn}
          curr.id = wrkCount
          conn.addListener('connect', function () { onConnect(curr) })
@@ -295,5 +337,7 @@ exports.make = function (host, port, wrkCount) {
          busy.push(wrkCount)
       })()
    }
+
+   /* Return public interface */
    return {put: put, get: get, del: del, iter:iter, halt: halt}
 }
