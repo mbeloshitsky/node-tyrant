@@ -38,24 +38,6 @@ tests.push(function () {
    })
 })
 
-tests.push(function () {
-   var test = ''
-
-   console.log('** Huge value **')
-
-   /* 0.9Mb value */
-   for (var i = 0; i < 90000; i++) 
-      test += 'aaaaaaaaaa'
-
-   tt.put('hugeValue', test, function (err) {
-      if (err) throw err
-      tt.get('hugeValue', function (err, data) {
-	 console.log(data.length + ' = ' + test.length)
-	 assert(test == data)
-	 nextTest()
-      })
-   })
-})
 
 tests.push(function () {
    var test1 = 'aaa', test2 = 'bbb'
@@ -84,11 +66,48 @@ tests.push(function () {
       tt.put('putappend', test2, function (err) {
 	 if (err) throw err
 	 tt.get('putappend', function (err, data) {
+	    if (err) throw err
 	    console.log(test1 + ' + ' + test2 + ' = ' + data)
 	    assert((test1 + test2) == data)
 	    nextTest()
 	 })
       }, 'append')
+   })
+})
+
+tests.push(function () {
+   var test = 'deleteme'
+
+   console.log('** Delete test **')
+
+   tt.put('tobeout', test, function (err) {
+      if (err) throw err
+      tt.del('tobeout', function (err) {
+	 if (err) throw err
+	 tt.get('tobeout', function (err, data) {
+	    assert(err.code == 1)
+	    nextTest()
+	 })
+      })
+   })
+})
+
+tests.push(function () {
+   var test = ''
+
+   console.log('** Huge value **')
+
+   /* 0.9Mb value */
+   for (var i = 0; i < 90000; i++) 
+      test += 'aaaaaaaaaa'
+
+   tt.put('hugeValue', test, function (err) {
+      if (err) throw err
+      tt.get('hugeValue', function (err, data) {
+	 console.log(data.length + ' = ' + test.length)
+	 assert(test == data)
+	 nextTest()
+      })
    })
 })
 

@@ -277,6 +277,7 @@ exports.make = function (host, port, wrkCount) {
       for (i=1; i < arguments.length; i++)
          args.push(arguments[i])
       state.cb && state.cb.apply(null, args)
+      delete state.cb
       wfree(state.id)
    }
 
@@ -294,5 +295,5 @@ exports.make = function (host, port, wrkCount) {
          busy.push(wrkCount)
       })()
    }
-   return {put: put, get: get, iter:iter, halt: halt}
+   return {put: put, get: get, del: del, iter:iter, halt: halt}
 }
