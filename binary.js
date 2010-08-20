@@ -38,7 +38,9 @@
  */
 
 exports.format = function () {
+
    var out = '', args = arguments, format = args[0].split(''), argi = 1
+
    format.map(function (spec) {
       switch (spec) {
       case 'b': out += String.fromCharCode(args[argi])

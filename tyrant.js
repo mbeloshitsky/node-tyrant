@@ -1,13 +1,14 @@
-/**
- * Tokyo tyrant connectior
- * 
+/*
+ *
  * 2010, Michel Beloshitsky
  *
  * Licensed under the terms of MIT license. See COPYING file in the
  * root of distribution.
  */
 
-var net = require('net'), sys = require('sys'), bin = require('./binary')
+var net = require('net'), sys = require('sys')
+
+var bin = require('./binary'), stream = require('./stream')
 
 /* From tcrdb.h */
 /* enumeration for error codes */
@@ -54,21 +55,19 @@ var TTCMDREPL       = 0xa0              /* ID of repl command */
 
 exports.make = function (host, port, wrkCount) {
 
-   /* State */
-   var halted = false
+   /*
+     Workers management
 
-   /* 
-      Workers management
-      
-      Here we use simple connection pool pattern. At the begin
-      we make N connections and distribute it among incoming tasks.
-      
-      If number of incoming task requests overrates number of free connections
-      we put task requests in fifo queue - which stored in wpending array.
-    */
+     Here we use simple connection pool pattern. At the begin
+     we make N connections and distribute it among incoming tasks.
+
+     If number of incoming task requests overrates number of free connections
+     we put task requests in fifo queue - which stored in wpending array.
+   */
+
    var workers = {}, free = [], busy = [], wpending = []
 
-   /* Allocate free connection or pend task in case 
+   /* Allocate free connection or pend task in case
       of no free conenctions. */
    function walloc(cb) {
       var found = free.pop()
@@ -94,229 +93,105 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
-   /* TCP connection events handling.
-      
-      While creating connection pool we bind these 
-      handlers to each connection. 
-
-      "state" parameter which passed to each of handlers 
-      intended to provide access to connection specific data.
-    */
-   function onConnect(state) {
-      state.stream.setEncoding('binary')
-      wfree(state.id)
-   }
-
-   /* 'drain' event - stream writable again */
-   function onDrain(state) {
-      /* Possible not correct */
-      if (!state.cmd)
-         return
-
-      switch (state.cmd) {
-      case TTCMDPUTNR:
-         fin(state)
-         break
-      }
-   }
-
-   /* Data received - most complicated handler now. 
-    
-      TODO: Split this into separated handlers for each 
-      command.
-   */
-   function onData(state, data) {
-      /* Possible not correct */
-      if (!state.cmd)
-         return
-
-      switch (state.cmd) {
-      case TTCMDPUT:
-      case TTCMDOUT:
-      case TTCMDPUTKEEP:
-      case TTCMDPUTCAT:
-	 /* Check for error and end request */
-         var ed = bin.read('b', data), err = ed[1][0], data = ed[0]
-         if (err != TTESUCCESS) {
-            fin(state, {code:err}, data)
-         }
-         fin(state, null, data)
-         break
-      case TTCMDGET:
-	 /* Retreive value. Value size may be huge so it may */
-         if (!state.rem) {
-            var ed = bin.read('bI', data), err = ed[1][0], len = ed[1][1], data = ed[0]
-            if (err != TTESUCCESS) {
-               fin(state, {code:err}, data)
-            }
-            state.rem = ['', len]
-         }
-         if (state.rem) {
-            var len = state.rem[1]
-            var plen = len - state.rem[0].length
-            state.rem[0] += data.slice(0, plen)
-            if (len == state.rem[0].length) {
-               fin(state, null, eval(state.rem[0]))
-	       delete state.rem
-            }
-         }
-         break
-      case TTCMDMISC:
-	 /* Handle iterinit and iternext commands.
-	    
-	    We need B+Tree specific commands so we should use msic tyrant api 
-	 */
-         var ed = bin.read('bI', data), err = ed[1][0], data = ed[0], len = ed[1][1]
-	 if (state.miscCmd == 'iterinit') {
-            if (err != TTESUCCESS) {
-               return fin(state, {code:err}, data)
-            }
-	    if (len != 0) 
-	       fin(state, {code:TTEMISC+2, 
-			wtf: 'Iterinit expected 0-size list from tyrant'})
-	    state.cb(null, 'start')
-	    state.miscCmd = 'iternext'
-	    state.stream.write(
-               bin.format('bbIIIS', TTMAGICNUM, state.cmd, 
-			  state.miscCmd.length, /* opts */0, /* argCount */0, 
-			  state.miscCmd),
-               'binary'
-            )
-	 } else if (state.miscCmd == 'iternext') {
-            if (err == TTEINVALID) {
-               return fin(state, null, 'end')
-            }
-            if (err != TTESUCCESS) {
-               return fin(state, {code:err}, data)
-            }
-	    if (len == 2) {
-	       var ed = bin.read('I', data), data = ed[0], key = data.substr(0, ed[1][0])
-	       data = data.slice(ed[1][0])
-	       var ed = bin.read('I', data), data = ed[0], val = data.substr(0, ed[1][0])
-	       var kj = eval(key), vj = eval(val)
-	       state.cb(null, 'k-v', kj, vj)
-	       if (kj == state.endKey) {
-		  return fin(state, null, 'end')
-	       }
-	       state.stream.write(
-		  bin.format('bbIIIS', TTMAGICNUM, state.cmd, 
-			     state.miscCmd.length, /* opts */0, /* argCount */0, 
-			     state.miscCmd),
-		  'binary'
-               )
-	    } else {
-	       fin(state, {code:TTEMISC+1, 
-			wtf: 'Unexpected list length in ('+state.miscCmd+')'})
-	    }
-	 } else {
-	    fin(state, {code:TTEMISC+1, 
-			wtf: 'Not implemented misc command ('+state.miscCmd+')'})
-	 }
-         break
-      default:
-	 /* Unrecognized. Send error. */
-         fin(state, {code:TTEMISC+1, 
-		     wtf: 'Not implemented onData event ('+state.cmd+')'})
-         break
-      }
-   }
-
-   function onDisconnect(state) {
-
-   }
-
    /* Public interface */
 
-   function put (k, v, cb, mod) {
-      walloc(function (err, state) {
+   function put (k, v, mod, cb) {
+
+      if (mod && !mod.sort)
+         cb = mod, mod = null
+
+      walloc(function (err, ts) {
          var jk = JSON.stringify(k), jv = JSON.stringify(v)
-	 if (cb.sort) { /* String ? => modifier, not cb*/
-	    mod = cb
-	    cb = undefined
-	 }
-         state.cmd = ({
-	    'keep': TTCMDPUTKEEP, 
-	    'append': TTCMDPUTCAT
-	 })[mod] || (cb ? TTCMDPUT : TTCMDPUTNR)
-	 if (state.cmd == TTCMDPUTCAT)
-	    jv = '+' + jv
-         state.cb = cb
-         state.stream.write(
-            bin.format('bbIISS', TTMAGICNUM, state.cmd, jk.length, jv.length, jk, jv),
-            'binary'
+
+         var cmd = ({
+            'keep': TTCMDPUTKEEP,
+            'append': TTCMDPUTCAT
+         })[mod] || (cb ? TTCMDPUT : TTCMDPUTNR)
+
+         if (ts.cmd == TTCMDPUTCAT)
+            jv = '+' + jv
+
+         ts.s.write(
+            bin.format('bbIISS', TTMAGICNUM, cmd, jk.length, jv.length, jk, jv),
+            cmd == TTCMDPUTNR ? cb : null
          )
+
+         if (cmd != TTCMDPUTNR)
+            bin.read('b', ts.s.read, function (err, res) {
+               cb(err || res[0])
+	       ts.free()
+            })
       })
    }
 
-   function get(k, cb) {
-      walloc(function (err, state) {
+   function get (k, cb) {
+      walloc(function (err, ts) {
          var jk = JSON.stringify(k)
-         state.cmd = TTCMDGET
-         state.cb = cb
-         state.stream.write(
-            bin.format('bbIS', TTMAGICNUM, state.cmd, jk.length, jk),
+
+         ts.s.write(
+            bin.format('bbIS', TTMAGICNUM, TTCMDGET, jk.length, jk),
             'binary'
          )
+
+         bin.read('b', ts.s.read, function (err, res) {
+            if (err || res[0]) {
+	       cb(err || res[0]); ts.free()
+            } else {
+               bin.read('S', ts.s.read, function (err, str) {
+		  cb(err, eval(str)); ts.free()
+               })
+            }
+         })
+
       })
    }
 
-   function del(k, cb) {
-      walloc(function (err, state) {
-         var jk = JSON.stringify(k)
-         state.cmd = TTCMDOUT
-         state.cb = cb
-         state.stream.write(
-            bin.format('bbIS', TTMAGICNUM, state.cmd, jk.length, jk),
-            'binary'
-         )
+   function del (k, cb) {
+      var jk = JSON.stringify(k)
+      walloc(function (err, ts) {
+
+	 ts.s.write(
+            bin.format('bbIS', TTMAGICNUM, TTCMDOUT, jk.length, jk)
+	 )
+
+         bin.read('b', ts.s.read, function (err, res) {
+            cb(err || res[0]); ts.free()
+         })
+
       })
    }
 
-   function iter(ks, ke, cb) {
-      walloc(function (err, state) {
-         var jks = JSON.stringify(ks)
-         state.cmd = TTCMDMISC
-	 state.miscCmd = 'iterinit'
-	 state.endKey = ke
-         state.cb = cb
-	 if (jks) {
-            state.stream.write(
-               bin.format('bbIIISIS', TTMAGICNUM, state.cmd, 
-			  state.miscCmd.length, /* opts */0, /* argCount */1,
-			  state.miscCmd, jks.length, jks),
-               'binary'
-            )
-	 } else {
-	    state.stream.write(
-               bin.format('bbIIIS',   TTMAGICNUM, state.cmd, 
-			  state.miscCmd.length, /* opts */0, /* argCount */0, 
-			  state.miscCmd),
-               'binary'
-            )
-	 }
-      })
-   }
+   // function iter(ks, ke, cb) {
+   //    walloc(function (err, state) {
+   //       var jks = JSON.stringify(ks)
+   //       state.cmd = TTCMDMISC
+   //       state.miscCmd = 'iterinit'
+   //       state.endKey = ke
+   //       state.cb = cb
+   //       if (jks) {
+   //          state.stream.write(
+   //             bin.format('bbIIISIS', TTMAGICNUM, state.cmd,
+   //                        State.miscCmd.length, /* opts */0, /* argCount */1,
+   //                        state.miscCmd, jks.length, jks),
+   //             'binary'
+   //          )
+   //       } else {
+   //          state.stream.write(
+   //             bin.format('bbIIIS',   TTMAGICNUM, state.cmd,
+   //                        state.miscCmd.length, /* opts */0, /* argCount */0,
+   //                        state.miscCmd),
+   //             'binary'
+   //          )
+   //       }
+   //    })
+   // }
 
    /* Close connection pool */
    function halt() {
       halted = true
       for (w in workers) {
-	 workers[w].stream.destroy()
+         workers[w].s.close()
       }
-   }
-
-   /* State management */
-
-   /* Common used finalizing function for finalizing command. 
-
-      Send final callback and free allocated connection */
-   function fin(state) {
-      var i, args=[]
-      for (i=1; i < arguments.length; i++)
-         args.push(arguments[i])
-      state.cb && state.cb.apply(null, args)
-      delete state.cb
-      wfree(state.id)
    }
 
    /* The Maker - makes connection pool. */
@@ -324,20 +199,24 @@ exports.make = function (host, port, wrkCount) {
    wrkCount = wrkCount || 8 /* This default came from tyrant */
 
    while(wrkCount--) {
+
       /* Here we need a closure to make curr and conn vars unique for
-	 each connection. */
-      (function () { 
-         var conn = net.createConnection(port || TTDEFPORT, host), curr = {stream: conn}
-         curr.id = wrkCount
-         conn.addListener('connect', function () { onConnect(curr) })
-         conn.addListener('drain', function () { onDrain(curr) })
-         conn.addListener('data', function (data) { onData(curr,data) })
-         conn.addListener('end', function () { onDisconnect(curr) })
+         each connection. */
+
+      (function () {
+
+         var conn = net.createConnection(port || TTDEFPORT, host)
+
+         var curr = {s: stream.make(conn), 
+		     free: function () { wfree(wrkCount) }}
+
          workers[wrkCount]=curr
          busy.push(wrkCount)
       })()
    }
 
    /* Return public interface */
+
    return {put: put, get: get, del: del, iter:iter, halt: halt}
+
 }
