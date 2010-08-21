@@ -52,53 +52,31 @@ var TTCMDSTAT       = 0x88              /* ID of stat command */
 var TTCMDMISC       = 0x90              /* ID of misc command */
 var TTCMDREPL       = 0xa0              /* ID of repl command */
 
+/* Function: make
+
+   The Maker. Constructs new connector instance.
+
+   Parameters:
+
+   [optional] host - tokyo tyrant server host. If this value omitted
+   "localhost" used as default hostname.
+
+   [optional] port - tokyo tyrant server port. If this value omitted
+   1978 used as default port number.
+
+   [optional] wrkCount - Number of parallel connections to tokyo
+   tyrant server instance. If omitted 8 connections will be created.
+
+   Returns:
+
+   Public interface for interaction with specified tokyo tyrant
+   instance.
+
+*/
 exports.make = function (host, port, wrkCount) {
 
-   /*
-     Topic: Workers management
-
-     Here we use simple connection pool pattern. At the begin
-     we make N connections and distribute it among incoming tasks.
-
-     If number of incoming task requests overrates number of free connections
-     we put task requests in fifo queue - which stored in wpending array.
-   */
-
-   /* Group: Workers handling */
-
-   var workers = {}, free = [], busy = [], wpending = []
-
-   /* Function: walloc
-    * Allocate free connection or pend task request in case
-    * of no free connections.
-    */
-   function walloc(cb) {
-      var found = free.pop()
-      if (found !== undefined) {
-         busy.push(found)
-         cb(null, workers[found])
-      } else {
-         wpending.push(cb)
-      }
-   }
-
-   /* Function: wfree
-    * Free connection and check pending queue. If queue contain
-    * incoming task requests - alloc it immeditally. */
-   function wfree(id) {
-      busy = busy.reduce(function (res, x) {
-         if (x != id) res.push(x); return res
-      }, [])
-      free.push(id)
-
-      /* Check pending */
-      while (wpending.length && free.length) {
-         walloc(wpending.shift())
-      }
-   }
-
    /* Group: Public interface */
-  
+
    /* Function: put
     * Put value into the storage
     */
@@ -175,7 +153,7 @@ exports.make = function (host, port, wrkCount) {
 
    /* Function: iter
       Run iteration.
-    */
+   */
    function iter(ks, ke, cb) {
       var jks = JSON.stringify(ks)
 
@@ -224,7 +202,7 @@ exports.make = function (host, port, wrkCount) {
    }
 
    /* Function:halt
-    * Close connection pool 
+    * Close connection pool
     */
    function halt() {
       halted = true
@@ -233,7 +211,53 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
-   /* The Maker - makes connection pool. */
+   /* Group: Internals */
+
+   /*
+     Topic: Workers management
+
+     How operations paralelled. Here we use simple connection pool
+     pattern. At the begin we make N connections and distribute it
+     among incoming tasks.
+
+     If number of incoming task requests overrates number of free
+     connections we put task requests in fifo queue - which stored in
+     wpending array.
+   */
+
+   var workers = {}, free = [], busy = [], wpending = []
+
+   /* Function: walloc
+    * Allocate free connection or pend task request in case
+    * of no free connections.
+    */
+   function walloc(cb) {
+      var found = free.pop()
+      if (found !== undefined) {
+         busy.push(found)
+         cb(null, workers[found])
+      } else {
+         wpending.push(cb)
+      }
+   }
+
+   /* Function: wfree
+    * Free connection and check pending queue. If queue contain
+    * incoming task requests - alloc it immeditally. */
+   function wfree(id) {
+      busy = busy.reduce(function (res, x) {
+         if (x != id) res.push(x); return res
+      }, [])
+      free.push(id)
+
+      /* Check pending */
+      while (wpending.length && free.length) {
+         walloc(wpending.shift())
+      }
+   }
+
+
+   /* The Maker loop - makes connection pool. */
 
    wrkCount = wrkCount || 8 /* This default came from tyrant */
 
