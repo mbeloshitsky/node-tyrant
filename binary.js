@@ -16,9 +16,9 @@
  *
  * Abbreviations:
  *
- * b - byte (octet).  
- * i - 32-bit big-endian integer 
- * S - string (sequence of chars).  
+ * b - byte (octet).
+ * i - 32-bit big-endian integer
+ * S - string (sequence of chars).
  *
  * In read function "S" means pascal string. In mean that at first
  * read length (N) from 32-integer. After that N bytes read into string.
@@ -68,7 +68,7 @@ exports.read = function rd (fmtStr, reader, cb) {
 
    function next(specCh) {
       if (!specCh)
-	 return cb(null, out)
+         return cb(null, out)
 
       switch (specCh) {
       case 'b':
@@ -91,7 +91,7 @@ exports.read = function rd (fmtStr, reader, cb) {
          rd('i', reader, function (err, len) {
             reader.read(len[0], function (err, data) {
                out.push(data)
-	       next(spec.shift())
+               next(spec.shift())
             })
          })
          break

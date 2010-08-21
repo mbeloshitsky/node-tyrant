@@ -31,9 +31,9 @@ tests.push(function () {
    tt.put('simple', test, function (err) {
       if (err) throw err
       tt.get('simple', function (err, data) {
-	 console.log(test + ' = ' + data)
-	 assert(test == data)
-	 nextTest()
+         console.log(test + ' = ' + data)
+         assert(test == data)
+         nextTest()
       })
    })
 })
@@ -47,11 +47,11 @@ tests.push(function () {
    tt.put('putkeep', test1, function (err) {
       if (err) throw err
       tt.put('putkeep', test2, 'keep', function (err) {
-	 tt.get('putkeep', function (err, data) {
-	    console.log(test1 + ' = ' + data)
-	    assert(test1 == data)
-	    nextTest()
-	 })
+         tt.get('putkeep', function (err, data) {
+            console.log(test1 + ' = ' + data)
+            assert(test1 == data)
+            nextTest()
+         })
       })
    })
 })
@@ -64,13 +64,13 @@ tests.push(function () {
    tt.put('putappend', test1, function (err) {
       if (err) throw err
       tt.put('putappend', test2, 'append', function (err) {
-	 if (err) throw err
-	 tt.get('putappend', function (err, data) {
-	    if (err) throw err
-	    console.log(test1 + ' + ' + test2 + ' = ' + data)
-	    assert((test1 + test2) == data)
-	    nextTest()
-	 })
+         if (err) throw err
+         tt.get('putappend', function (err, data) {
+            if (err) throw err
+            console.log(test1 + ' + ' + test2 + ' = ' + data)
+            assert((test1 + test2) == data)
+            nextTest()
+         })
       })
    })
 })
@@ -83,11 +83,11 @@ tests.push(function () {
    tt.put('tobeout', test, function (err) {
       if (err) throw err
       tt.del('tobeout', function (err) {
-	 if (err) throw err
-	 tt.get('tobeout', function (err, data) {
-	    assert(err == 1)
-	    nextTest()
-	 })
+         if (err) throw err
+         tt.get('tobeout', function (err, data) {
+            assert(err == 1)
+            nextTest()
+         })
       })
    })
 })
@@ -98,15 +98,15 @@ tests.push(function () {
    console.log('** Huge value **')
 
    /* 0.9Mb value */
-   for (var i = 0; i < 90000; i++) 
+   for (var i = 0; i < 90000; i++)
       test += 'aaaaaaaaaa'
 
    tt.put('hugeValue', test, function (err) {
       if (err) throw err
       tt.get('hugeValue', function (err, data) {
-	 console.log(data.length + ' = ' + test.length)
-	 assert(test == data)
-	 nextTest()
+         console.log(data.length + ' = ' + test.length)
+         assert(test == data)
+         nextTest()
       })
    })
 })
@@ -121,12 +121,12 @@ tests.push(function () {
       if (err) throw err
       console.log(cmd)
       if (cmd == 'k-v') {
-	 rcvdkeys.push(k)
-	 console.log(k, v)
+         rcvdkeys.push(k)
+         console.log(k, v)
       }
       if (cmd == 'end') {
-	 assert(rcvdkeys[0] == 'putappend' && rcvdkeys.pop() == 'putkeep')
-	 nextTest()
+         assert(rcvdkeys[0] == 'putappend' && rcvdkeys.pop() == 'putkeep')
+         nextTest()
       }
    })
 })

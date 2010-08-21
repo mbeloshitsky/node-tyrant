@@ -19,7 +19,7 @@ exports.make = function (port, host, enc) {
 
    function checkReceivedEnough () {
       if (requestedSize && buffer.length >= requestedSize) {
-	 var resStr = buffer.substr(0, requestedSize)
+         var resStr = buffer.substr(0, requestedSize)
          buffer = buffer.slice(requestedSize)
          requestedSize = 0
          readCallback(null, resStr)
@@ -49,7 +49,7 @@ exports.make = function (port, host, enc) {
    })
 
    netStr.addListener('end' , function () {
-      
+
    })
 
    netStr.addListener('data' , function (data) {

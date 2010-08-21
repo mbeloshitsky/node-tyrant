@@ -117,7 +117,7 @@ exports.make = function (host, port, wrkCount) {
          if (cmd != TTCMDPUTNR)
             bin.read('b', ts.s, function (err, res) {
                cb(err || res[0])
-	       ts.free()
+               ts.free()
             })
       })
    }
@@ -132,10 +132,10 @@ exports.make = function (host, port, wrkCount) {
 
          bin.read('b', ts.s, function (err, res) {
             if (err || res[0]) {
-	       cb(err || res[0]); ts.free()
+               cb(err || res[0]); ts.free()
             } else {
                bin.read('S', ts.s, function (err, str) {
-		  cb(err, eval(str[0])); ts.free()
+                  cb(err, eval(str[0])); ts.free()
                })
             }
          })
@@ -147,9 +147,9 @@ exports.make = function (host, port, wrkCount) {
       var jk = JSON.stringify(k)
       walloc(function (err, ts) {
 
-	 ts.s.write(
+         ts.s.write(
             bin.format('bbis', TTMAGICNUM, TTCMDOUT, jk.length, jk)
-	 )
+         )
 
          bin.read('b', ts.s, function (err, res) {
             cb(err || res[0]); ts.free()
@@ -157,52 +157,52 @@ exports.make = function (host, port, wrkCount) {
 
       })
    }
-   
+
    function iter(ks, ke, cb) {
       var jks = JSON.stringify(ks)
-      
-        walloc(function (err, ts) {
 
-	   function end (err) {
-	      cb(err, 'end')
-	      ts.free()
-	   }
+      walloc(function (err, ts) {
 
-	   function next () {
-	      ts.s.write(
-		 bin.format('bbiiis', TTMAGICNUM, TTCMDMISC,
-                            'iternext'.length, /* opts */0, /* argCount */0,
-                            'iternext')
-              )
+         function end (err) {
+            cb(err, 'end')
+            ts.free()
+         }
 
-	      bin.read('bi', ts.s, function (err, res) {
-		 if (res[0]  == 1)
-		    return end()
-		 if (err || res[0])
-		    return end(err || res[0])
-		 bin.read('SS', ts.s, function (err, kv) {
-		    var kj = eval(kv[0])
-		    
-		    cb(null, 'k-v', kj, eval(kv[1]))
-		    
-		    kj == ke ? end() : next()
-		 })
-	      })
-	   }
+         function next () {
+            ts.s.write(
+               bin.format('bbiiis', TTMAGICNUM, TTCMDMISC,
+                          'iternext'.length, /* opts */0, /* argCount */0,
+                          'iternext')
+            )
 
-           ts.s.write(
-	      bin.format('bbiiis' + (jks ? 'is' : ''), TTMAGICNUM, TTCMDMISC,
-                         'iterinit'.length, /* opts */0, /* argCount */jks ? 1 : 0,
-                         'iterinit', jks.length, jks)
-           )
-	   
-	   bin.read('bi', ts.s, function (err, res) {
-	      if (err || res[0])
-		 return cb(err || res[0])
-	      cb(null, 'start')
-	      next()
-	   })
-	})
+            bin.read('bi', ts.s, function (err, res) {
+               if (res[0]  == 1)
+                  return end()
+               if (err || res[0])
+                  return end(err || res[0])
+               bin.read('SS', ts.s, function (err, kv) {
+                  var kj = eval(kv[0])
+
+                  cb(null, 'k-v', kj, eval(kv[1]))
+
+                  kj == ke ? end() : next()
+               })
+            })
+         }
+
+         ts.s.write(
+            bin.format('bbiiis' + (jks ? 'is' : ''), TTMAGICNUM, TTCMDMISC,
+                       'iterinit'.length, /* opts */0, /* argCount */jks ? 1 : 0,
+                       'iterinit', jks.length, jks)
+         )
+
+         bin.read('bi', ts.s, function (err, res) {
+            if (err || res[0])
+               return cb(err || res[0])
+            cb(null, 'start')
+            next()
+         })
+      })
    }
 
    /* Close connection pool */
@@ -225,11 +225,11 @@ exports.make = function (host, port, wrkCount) {
 
       (function () {
          var id = wrkCount, worker = {
-	    s:    stream.make(port || TTDEFPORT, host, 'binary'), 
-	    free: function () { wfree(id) }
-	 }
+            s:    stream.make(port || TTDEFPORT, host, 'binary'),
+            free: function () { wfree(id) }
+         }
 
-	 worker.s.on('connect', function () { worker.free() })
+         worker.s.on('connect', function () { worker.free() })
 
          workers[id]=worker
          busy.push(id)
