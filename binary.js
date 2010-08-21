@@ -53,7 +53,7 @@ exports.format = function () {
          }
          out+=ov.reverse().join('')
          break
-      case 'S': out += args[argi]
+      case 's': out += args[argi]
          break
       default:
          throw 'Binary format syntax error'
@@ -63,33 +63,35 @@ exports.format = function () {
    return out
 }
 
-exports.read = function read (fmtStr, reader, cb) {
+exports.read = function rd (fmtStr, reader, cb) {
    var out = [], spec = fmtStr.split('')
 
    function next(specCh) {
       if (!specCh)
-	 return cb(out)
+	 return cb(null, out)
 
       switch (specCh) {
       case 'b':
-         reader.read(1, function (str) {
+         reader.read(1, function (err, str) {
             out.push(str.charCodeAt(0));
             next(spec.shift())
          })
          break
       case 'i':
-         reader.read(4, function (str) {
+         reader.read(4, function (err, str) {
             var j = -1, v = 0
             while (++j < 4) {
                v += (str.charCodeAt(j) & 0xFF) << (8 * (3 - j))
             }
             out.push(v)
+            next(spec.shift())
          })
          break
       case 'S':
-         read('i', reader, function (len) {
-            reader.read(len[0], function (data) {
+         rd('i', reader, function (err, len) {
+            reader.read(len[0], function (err, data) {
                out.push(data)
+	       next(spec.shift())
             })
          })
          break

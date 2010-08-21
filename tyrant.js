@@ -6,9 +6,7 @@
  * root of distribution.
  */
 
-var net = require('net'), sys = require('sys')
-
-var bin = require('./binary'), stream = require('./stream')
+var bin = require('./binary'), stream = require('./nstream')
 
 /* From tcrdb.h */
 /* enumeration for error codes */
@@ -67,8 +65,8 @@ exports.make = function (host, port, wrkCount) {
 
    var workers = {}, free = [], busy = [], wpending = []
 
-   /* Allocate free connection or pend task in case
-      of no free conenctions. */
+   /* Allocate free connection or pend task request in case
+      of no free connections. */
    function walloc(cb) {
       var found = free.pop()
       if (found !== undefined) {
@@ -97,7 +95,7 @@ exports.make = function (host, port, wrkCount) {
 
    function put (k, v, mod, cb) {
 
-      if (mod && !mod.sort)
+      if (mod && !mod.toLowerCase)
          cb = mod, mod = null
 
       walloc(function (err, ts) {
@@ -108,16 +106,16 @@ exports.make = function (host, port, wrkCount) {
             'append': TTCMDPUTCAT
          })[mod] || (cb ? TTCMDPUT : TTCMDPUTNR)
 
-         if (ts.cmd == TTCMDPUTCAT)
+         if (mod == 'append')
             jv = '+' + jv
 
          ts.s.write(
-            bin.format('bbIISS', TTMAGICNUM, cmd, jk.length, jv.length, jk, jv),
+            bin.format('bbiiss', TTMAGICNUM, cmd, jk.length, jv.length, jk, jv),
             cmd == TTCMDPUTNR ? cb : null
          )
 
          if (cmd != TTCMDPUTNR)
-            bin.read('b', ts.s.read, function (err, res) {
+            bin.read('b', ts.s, function (err, res) {
                cb(err || res[0])
 	       ts.free()
             })
@@ -129,16 +127,15 @@ exports.make = function (host, port, wrkCount) {
          var jk = JSON.stringify(k)
 
          ts.s.write(
-            bin.format('bbIS', TTMAGICNUM, TTCMDGET, jk.length, jk),
-            'binary'
+            bin.format('bbis', TTMAGICNUM, TTCMDGET, jk.length, jk)
          )
 
-         bin.read('b', ts.s.read, function (err, res) {
+         bin.read('b', ts.s, function (err, res) {
             if (err || res[0]) {
 	       cb(err || res[0]); ts.free()
             } else {
-               bin.read('S', ts.s.read, function (err, str) {
-		  cb(err, eval(str)); ts.free()
+               bin.read('S', ts.s, function (err, str) {
+		  cb(err, eval(str[0])); ts.free()
                })
             }
          })
@@ -151,42 +148,65 @@ exports.make = function (host, port, wrkCount) {
       walloc(function (err, ts) {
 
 	 ts.s.write(
-            bin.format('bbIS', TTMAGICNUM, TTCMDOUT, jk.length, jk)
+            bin.format('bbis', TTMAGICNUM, TTCMDOUT, jk.length, jk)
 	 )
 
-         bin.read('b', ts.s.read, function (err, res) {
+         bin.read('b', ts.s, function (err, res) {
             cb(err || res[0]); ts.free()
          })
 
       })
    }
+   
+   function iter(ks, ke, cb) {
+      var jks = JSON.stringify(ks)
+      
+        walloc(function (err, ts) {
 
-   // function iter(ks, ke, cb) {
-   //    walloc(function (err, state) {
-   //       var jks = JSON.stringify(ks)
-   //       state.cmd = TTCMDMISC
-   //       state.miscCmd = 'iterinit'
-   //       state.endKey = ke
-   //       state.cb = cb
-   //       if (jks) {
-   //          state.stream.write(
-   //             bin.format('bbIIISIS', TTMAGICNUM, state.cmd,
-   //                        State.miscCmd.length, /* opts */0, /* argCount */1,
-   //                        state.miscCmd, jks.length, jks),
-   //             'binary'
-   //          )
-   //       } else {
-   //          state.stream.write(
-   //             bin.format('bbIIIS',   TTMAGICNUM, state.cmd,
-   //                        state.miscCmd.length, /* opts */0, /* argCount */0,
-   //                        state.miscCmd),
-   //             'binary'
-   //          )
-   //       }
-   //    })
-   // }
+	   function end (err) {
+	      cb(err, 'end')
+	      ts.free()
+	   }
+
+	   function next () {
+	      ts.s.write(
+		 bin.format('bbiiis', TTMAGICNUM, TTCMDMISC,
+                            'iternext'.length, /* opts */0, /* argCount */0,
+                            'iternext')
+              )
+
+	      bin.read('bi', ts.s, function (err, res) {
+		 if (res[0]  == 1)
+		    return end()
+		 if (err || res[0])
+		    return end(err || res[0])
+		 bin.read('SS', ts.s, function (err, kv) {
+		    var kj = eval(kv[0])
+		    
+		    cb(null, 'k-v', kj, eval(kv[1]))
+		    
+		    kj == ke ? end() : next()
+		 })
+	      })
+	   }
+
+           ts.s.write(
+	      bin.format('bbiiis' + (jks ? 'is' : ''), TTMAGICNUM, TTCMDMISC,
+                         'iterinit'.length, /* opts */0, /* argCount */jks ? 1 : 0,
+                         'iterinit', jks.length, jks)
+           )
+	   
+	   bin.read('bi', ts.s, function (err, res) {
+	      if (err || res[0])
+		 return cb(err || res[0])
+	      cb(null, 'start')
+	      next()
+	   })
+	})
+   }
 
    /* Close connection pool */
+
    function halt() {
       halted = true
       for (w in workers) {
@@ -200,18 +220,19 @@ exports.make = function (host, port, wrkCount) {
 
    while(wrkCount--) {
 
-      /* Here we need a closure to make curr and conn vars unique for
+      /* Here we need a closure to make worker variable unique for
          each connection. */
 
       (function () {
+         var id = wrkCount, worker = {
+	    s:    stream.make(port || TTDEFPORT, host, 'binary'), 
+	    free: function () { wfree(id) }
+	 }
 
-         var conn = net.createConnection(port || TTDEFPORT, host)
+	 worker.s.on('connect', function () { worker.free() })
 
-         var curr = {s: stream.make(conn), 
-		     free: function () { wfree(wrkCount) }}
-
-         workers[wrkCount]=curr
-         busy.push(wrkCount)
+         workers[id]=worker
+         busy.push(id)
       })()
    }
 

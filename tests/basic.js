@@ -46,13 +46,13 @@ tests.push(function () {
 
    tt.put('putkeep', test1, function (err) {
       if (err) throw err
-      tt.put('putkeep', test2, function (err) {
+      tt.put('putkeep', test2, 'keep', function (err) {
 	 tt.get('putkeep', function (err, data) {
 	    console.log(test1 + ' = ' + data)
 	    assert(test1 == data)
 	    nextTest()
 	 })
-      }, 'keep')
+      })
    })
 })
 
@@ -63,7 +63,7 @@ tests.push(function () {
 
    tt.put('putappend', test1, function (err) {
       if (err) throw err
-      tt.put('putappend', test2, function (err) {
+      tt.put('putappend', test2, 'append', function (err) {
 	 if (err) throw err
 	 tt.get('putappend', function (err, data) {
 	    if (err) throw err
@@ -71,7 +71,7 @@ tests.push(function () {
 	    assert((test1 + test2) == data)
 	    nextTest()
 	 })
-      }, 'append')
+      })
    })
 })
 
@@ -85,7 +85,7 @@ tests.push(function () {
       tt.del('tobeout', function (err) {
 	 if (err) throw err
 	 tt.get('tobeout', function (err, data) {
-	    assert(err.code == 1)
+	    assert(err == 1)
 	    nextTest()
 	 })
       })

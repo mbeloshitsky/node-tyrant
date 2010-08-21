@@ -6,18 +6,23 @@
  * Licensed under the terms of MIT license. See COPYING file in the
  * root of distribution.
  */
-exports.make = function (netStr, enc) {
+
+var net = require('net')
+
+exports.make = function (port, host, enc) {
+
+   var netStr = net.createConnection(port || TTDEFPORT, host)
 
    var closed = false, encoding = enc || 'utf8'
 
    var drainCallback = null, readCallback = null, buffer = '', requestedSize = 0
 
    function checkReceivedEnough () {
-      if (readCallback && buffer.length >= requestedSize) {
-         readCallback(buffer.substr(0, requestedSize))
-         readCallback = null
+      if (requestedSize && buffer.length >= requestedSize) {
+	 var resStr = buffer.substr(0, requestedSize)
          buffer = buffer.slice(requestedSize)
          requestedSize = 0
+         readCallback(null, resStr)
       }
    }
 
@@ -44,6 +49,7 @@ exports.make = function (netStr, enc) {
    })
 
    netStr.addListener('end' , function () {
+      
    })
 
    netStr.addListener('data' , function (data) {
@@ -58,7 +64,11 @@ exports.make = function (netStr, enc) {
       }
    })
 
+   function extListener(event, fun) {
+      netStr.addListener(event, fun)
+   }
+
    /* Public interface */
 
-   return {read:read, write:write, close: close}
+   return {read:read, write:write, close:close, on: extListener}
 }
