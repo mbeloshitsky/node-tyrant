@@ -1,4 +1,5 @@
 /*
+ * Title: tyrant - tokyo tyrant to nodejs connector
  *
  * 2010, Michel Beloshitsky
  *
@@ -8,8 +9,8 @@
 
 var bin = require('./binary'), stream = require('./nstream')
 
-/* From tcrdb.h */
-/* enumeration for error codes */
+/* Error codes */
+
 var TTESUCCESS      = 0                /* success */
 var TTEINVALID      = 1                /* invalid operation */
 var TTENOHOST       = 2                /* host not found */
@@ -54,7 +55,7 @@ var TTCMDREPL       = 0xa0              /* ID of repl command */
 exports.make = function (host, port, wrkCount) {
 
    /*
-     Workers management
+     Topic: Workers management
 
      Here we use simple connection pool pattern. At the begin
      we make N connections and distribute it among incoming tasks.
@@ -63,10 +64,14 @@ exports.make = function (host, port, wrkCount) {
      we put task requests in fifo queue - which stored in wpending array.
    */
 
+   /* Group: Workers handling */
+
    var workers = {}, free = [], busy = [], wpending = []
 
-   /* Allocate free connection or pend task request in case
-      of no free connections. */
+   /* Function: walloc
+    * Allocate free connection or pend task request in case
+    * of no free connections.
+    */
    function walloc(cb) {
       var found = free.pop()
       if (found !== undefined) {
@@ -77,8 +82,9 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
-   /* Free connection and check pending queue. If queue contain
-      incoming task requests - alloc it immeditally. */
+   /* Function: wfree
+    * Free connection and check pending queue. If queue contain
+    * incoming task requests - alloc it immeditally. */
    function wfree(id) {
       busy = busy.reduce(function (res, x) {
          if (x != id) res.push(x); return res
@@ -91,8 +97,11 @@ exports.make = function (host, port, wrkCount) {
       }
    }
 
-   /* Public interface */
-
+   /* Group: Public interface */
+  
+   /* Function: put
+    * Put value into the storage
+    */
    function put (k, v, mod, cb) {
 
       if (mod && !mod.toLowerCase)
@@ -122,6 +131,9 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
+   /* Function: get
+    * Retreive value from database
+    */
    function get (k, cb) {
       walloc(function (err, ts) {
          var jk = JSON.stringify(k)
@@ -143,6 +155,9 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
+   /* Function:del
+    * Delete value by key.
+    */
    function del (k, cb) {
       var jk = JSON.stringify(k)
       walloc(function (err, ts) {
@@ -158,6 +173,9 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
+   /* Function: iter
+      Run iteration.
+    */
    function iter(ks, ke, cb) {
       var jks = JSON.stringify(ks)
 
@@ -205,8 +223,9 @@ exports.make = function (host, port, wrkCount) {
       })
    }
 
-   /* Close connection pool */
-
+   /* Function:halt
+    * Close connection pool 
+    */
    function halt() {
       halted = true
       for (w in workers) {
